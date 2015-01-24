@@ -1,0 +1,84 @@
+---
+title: "Practical Machine Learning - HAR classifier"
+author: "Jun Xie"
+date: "Thursday, January 22, 2015"
+output: html_document
+---
+#### Introduction
+This project use data [Ref] from accelerometers on the belt, forearm, arm, and dumbell of 6 participants who were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The goal of the HAR project is to predict the manner in which they did the exercise, the "classe" variable in the training set. Use any of the other variables to predict with. Create a report describing how the model is built, how cross validation is applied, what the expected out of sample error is, and why the choices are made. The final prediction model will then be used to predict 20 different test cases. 
+
+#### Load libraries
+
+```{r, warning=FALSE}
+library(caret)
+```
+
+#### Load data sets
+I use summary() to check the pmltraining and pmltesting data and determine that a number of the 160 variables consist of mostly NA's or blanks or #DIV/0!, which should be excluded from the clean data that will be fed into the machine learning model.
+
+```{r, echo=TRUE}
+pmltraining <- read.csv("data/pml-training.csv")
+pmltesting <- read.csv("data/pml-testing.csv")
+dim(pmltraining)
+summary(pmltraining$classe) #column#160 is "classe" in the training set and "problem_id" in the testing set
+```
+
+#### Exploratory Data Analysis and Feature Selection
+By using nearZeroVar() on both pmltraining and pmltesting data, I am able to identify a number columns having a majority of NA's or blanks or "#DIV/0!", more so with pmltesting (101) than with pmltraining (60). I decide to use nsv_test to select the 59 variables that are clean, the resulting 59 variable can be further reduced by removing the first 6 columns consists of row index, user_name, timestamp, etc.
+
+```{r, echo=TRUE}
+nsv_train <- nearZeroVar(pmltraining, saveMetrics=FALSE)
+nsv_test <- nearZeroVar(pmltesting, saveMetrics=FALSE)
+train <- pmltraining[, -nsv_test]
+test <- pmltesting[, -nsv_test]
+trainData <- train[, 7:59]
+testData <- test[, 7:59]
+```
+
+#### Data Slicing and Preprocessing
+I then split the trainData set into two subsets, train_data for training the ML model and cv_data for cross validating the model. No preprocessing is performed though it would be interesting to see if operations such as PCA will enhance the model.
+
+```{r, echo=TRUE}
+inTrain <- createDataPartition(y=trainData$classe, p = 0.70, list=FALSE)
+train_data <- trainData[inTrain, ]
+cv_data <- trainData[-inTrain, ]
+dim(train_data); dim(cv_data)
+```
+
+#### Training Model with random forest ('rf' in the caret package)
+Calculate the variable importance using the varImp function in the caret package. Select two variables with the highest importance to plot the data for visualization. The data are clustered but also overlapped between classe's on such simple 2D plot. 
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+train_ctrl <- trainControl(method = "oob", number = 4, verboseIter = TRUE)
+modFit <- train(classe ~ ., method = "rf", data = train_data, trControl = train_ctrl)
+modFit
+varImp(modFit)
+qplot(roll_belt, yaw_belt, colour=classe, data=train_data, main="HAR train data")
+```
+
+#### Cross Validating and Estimating Out-of-Sample Errors
+The out-of-sample error on the cross-validation set matches the in-sample error. Use two variables with the highest importance to plot the data for visualization. Also plot the data versus "total_accel_belt" and "total_accel_dumbbell" which have relatively higher importance than "total_accel_arm" and "total_accel_forearm".
+
+```{r, echo=TRUE}
+pred_activity <- predict(modFit, cv_data[,-53])
+confusionMatrix(pred_activity, cv_data$classe)
+qplot(roll_belt, yaw_belt, colour=classe, data=cv_data, main="HAR cross-validation data")
+qplot(total_accel_belt, total_accel_dumbbell, colour=classe, data=cv_data, main="HAR cross-validation data", geom = c("auto", "jitter"))
+```
+
+#### Making predictions on the pmltesting data set 
+The prediction results are submitted to the course grader and found to achieve an accuracy of 20/20.
+
+```{r, echo=TRUE}
+pred_test <- predict(modFit, testData[,-53])
+sprintf("The randomForest model predictions of pml-test data are:")
+pred_test
+qplot(total_accel_belt, total_accel_dumbbell, colour=pred_test, data=testData, main="HAR test predictions", geom=c("auto", "jitter"))
+```
+
+### Summary
+#### By selecting a set of clean HAR predictors and then applying Random Forest model, we are able to build a prediction model with greater than 99% accuaracy and use it to predict a set of test cases successfully.
+
+#### Reference 
+Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012.
+
